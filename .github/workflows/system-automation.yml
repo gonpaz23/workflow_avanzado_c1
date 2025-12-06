@@ -1,0 +1,126 @@
+name: System Automation
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Entorno de ejecución'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+
+jobs:
+  linux-automation:
+    name: Automatización en Linux
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      
+    - name: Configurar entorno
+      run: |
+        echo "NODE_ENV=${{ github.event.inputs.environment || 'development' }}" >> $GITHUB_ENV
+        echo "EXECUTION_DATE=$(date)" >> $GITHUB_ENV
+      
+    - name: Hacer ejecutable el script
+      run: chmod +x ./scripts/system-automation.sh
+      
+    - name: Ejecutar script con manejo de errores
+      id: automation
+      continue-on-error: false
+      env:
+        SECRET_MESSAGE: ${{ secrets.SECRET_MESSAGE }}
+        NODE_ENV: ${{ env.NODE_ENV }}
+      run: |
+        echo "=== INICIANDO EJECUCIÓN ==="
+        if ! ./scripts/system-automation.sh; then
+          echo "::error::El script falló"
+          exit 1
+        fi
+        echo "::notice::Script ejecutado exitosamente"
+        
+    - name: Verificar código de salida
+      if: always()
+      run: |
+        echo "Código de salida del paso anterior: ${{ steps.automation.outcome }}"
+        
+    - name: Subir artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-output-${{ github.run_id }}
+        path: |
+          output/
+          logs/
+        retention-days: 5
+        
+    - name: Limpiar archivos temporales
+      if: always()
+      run: |
+        echo "=== LIMPIEZA ==="
+        rm -rf output/* logs/* || true
+        
+  windows-automation:
+    name: Automatización en Windows
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      
+    - name: Crear script PowerShell
+      run: |
+        # Crear script PowerShell equivalente
+        @"
+        Write-Host "=== AUTOMATIZACIÓN WINDOWS ===" -ForegroundColor Green
+        
+        # Crear directorios
+        New-Item -ItemType Directory -Force -Path output,logs,backups
+        
+        # Gestionar permisos (ejemplo simplificado)
+        Write-Host "Directorios creados exitosamente"
+        
+        # Variables de entorno
+        Write-Host "Usuario: $env:USERNAME"
+        Write-Host "Computadora: $env:COMPUTERNAME"
+        
+        # Crear archivo de reporte
+        Get-Date | Out-File -FilePath output\windows-report.txt
+        "Sistema operativo: $env:OS" | Out-File -FilePath output\windows-report.txt -Append
+        
+        Write-Host "Reporte generado en output\windows-report.txt" -ForegroundColor Green
+        
+        # Generar JSON
+        @{
+            timestamp = Get-Date -Format o
+            system = @{
+                os = "$env:OS"
+                computer = "$env:COMPUTERNAME"
+            }
+            directories = @{
+                current = Get-Location
+                output = "output"
+            }
+        } | ConvertTo-Json | Out-File -FilePath output\config.json
+        
+        Write-Host "=== COMPLETADO ===" -ForegroundColor Green
+        "@ | Out-File -FilePath scripts\windows-automation.ps1
+        
+    - name: Ejecutar PowerShell
+      env:
+        SECRET_MESSAGE: ${{ secrets.SECRET_MESSAGE }}
+      run: |
+        powershell -ExecutionPolicy Bypass -File scripts\windows-automation.ps1
+        
+    - name: Subir artifacts Windows
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-output-${{ github.run_id }}
+        path: output/
+        retention-days: 5
