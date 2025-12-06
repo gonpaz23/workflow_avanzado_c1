@@ -66,7 +66,7 @@ jobs:
         echo "=== LIMPIEZA ==="
         rm -rf output/* logs/* || true
         
-  windows-automation:
+    windows-automation:
     name: Automatización en Windows
     runs-on: windows-latest
     
@@ -74,28 +74,35 @@ jobs:
     - name: Checkout código
       uses: actions/checkout@v4
       
-    - name: Crear script PowerShell
+    - name: Crear script PowerShell corregido
       run: |
-        # Crear script PowerShell equivalente
-        @"
+        # Crear directorio scripts si no existe
+        if (-not (Test-Path "scripts")) {
+          New-Item -ItemType Directory -Force -Path "scripts"
+        }
+        
+        # Crear script PowerShell CORREGIDO
+        @'
+        # scripts/windows-automation.ps1
         Write-Host "=== AUTOMATIZACIÓN WINDOWS ===" -ForegroundColor Green
-        
+
         # Crear directorios
-        New-Item -ItemType Directory -Force -Path output,logs,backups
-        
-        # Gestionar permisos (ejemplo simplificado)
-        Write-Host "Directorios creados exitosamente"
-        
+        Write-Host "Creando directorios..." -ForegroundColor Yellow
+        New-Item -ItemType Directory -Force -Path output, logs, backups | Out-Null
+
         # Variables de entorno
+        Write-Host "Información del sistema:" -ForegroundColor Yellow
         Write-Host "Usuario: $env:USERNAME"
-        Write-Host "Computadora: $env:COMPUTERNAME"
-        
+        Write-Host "Sistema: $env:OS"
+
         # Crear archivo de reporte
-        Get-Date | Out-File -FilePath output\windows-report.txt
-        "Sistema operativo: $env:OS" | Out-File -FilePath output\windows-report.txt -Append
-        
-        Write-Host "Reporte generado en output\windows-report.txt" -ForegroundColor Green
-        
+        $reportPath = "output\windows-report.txt"
+        "=== REPORTE ===" | Out-File -FilePath $reportPath
+        "Fecha: $(Get-Date)" | Out-File -FilePath $reportPath -Append
+        "Usuario: $env:USERNAME" | Out-File -FilePath $reportPath -Append
+
+        Write-Host "Reporte generado en $reportPath" -ForegroundColor Green
+
         # Generar JSON
         @{
             timestamp = Get-Date -Format o
@@ -103,18 +110,21 @@ jobs:
                 os = "$env:OS"
                 computer = "$env:COMPUTERNAME"
             }
-            directories = @{
-                current = Get-Location
-                output = "output"
-            }
-        } | ConvertTo-Json | Out-File -FilePath output\config.json
-        
+        } | ConvertTo-Json | Out-File -FilePath "output\config.json"
+
         Write-Host "=== COMPLETADO ===" -ForegroundColor Green
-        "@ | Out-File -FilePath scripts\windows-automation.ps1
+        '@ | Out-File -FilePath scripts\windows-automation.ps1 -Encoding UTF8
+        
+    - name: Mostrar contenido del script
+      run: |
+        Write-Host "=== CONTENIDO DEL SCRIPT ==="
+        Get-Content scripts\windows-automation.ps1
         
     - name: Ejecutar PowerShell
       env:
         SECRET_MESSAGE: ${{ secrets.SECRET_MESSAGE }}
+        GITHUB_WORKFLOW: ${{ github.workflow }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
       run: |
         powershell -ExecutionPolicy Bypass -File scripts\windows-automation.ps1
         
@@ -122,5 +132,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: windows-output-${{ github.run_id }}
-        path: output/
+        path: |
+          output/
+          logs/
         retention-days: 5
